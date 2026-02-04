@@ -10,6 +10,9 @@ public class GameEngine {
     public boolean isGameStopped = false;
     public boolean isWon = false;
 
+    // 控制是否需要在动画结束后生成新方块
+    private boolean needNewTile = false;
+
     private Runnable mergeSoundCallback;
 
     public GameEngine() {
@@ -25,11 +28,14 @@ public class GameEngine {
         score = 0;
         isGameStopped = false;
         isWon = false;
-        createNewNumber();
-        createNewNumber();
+        needNewTile = false;
+        // 初始生成两个
+        spawnNewTileImmediately();
+        spawnNewTileImmediately();
     }
 
-    public void createNewNumber() {
+    // 内部私有方法，直接生成
+    private void spawnNewTileImmediately() {
         if (getMaxTileValue() == 2048 && !isWon) isWon = true;
 
         List<int[]> emptyCells = new ArrayList<>();
@@ -53,16 +59,25 @@ public class GameEngine {
 
     private Tile getTileAt(int row, int col) {
         for (Tile t : tiles) {
-            if (t.getRow() == row && t.getCol() == col) {
-                return t;
-            }
+            if (t.getRow() == row && t.getCol() == col) return t;
         }
         return null;
     }
 
+    // --- 每一帧调用的逻辑 ---
     public void updateAnimations() {
+        boolean allFinished = true;
         for (Tile t : tiles) {
             t.update();
+            if (!t.isAnimationDone()) {
+                allFinished = false;
+            }
+        }
+
+        // 只有当所有方块静止，且有生成需求时，才生成新数字
+        if (allFinished && needNewTile) {
+            spawnNewTileImmediately();
+            needNewTile = false;
         }
     }
 
@@ -73,58 +88,49 @@ public class GameEngine {
         return true;
     }
 
-    // --- ⬇️ 全方向移动逻辑 (核心修改) ⬇️ ---
+    // --- 核心移动逻辑 (触发 needNewTile 而不是直接生成) ---
 
-    // 1. 向左移动
     public boolean moveLeft() {
         boolean isChanged = false;
-        List<Tile> mergedTiles = new ArrayList<>(); // 防止单次移动中连续合并
+        List<Tile> mergedTiles = new ArrayList<>();
 
         for (int i = 0; i < Config.SIDE; i++) {
-            for (int j = 1; j < Config.SIDE; j++) { // 从左数第二列开始
+            for (int j = 1; j < Config.SIDE; j++) {
                 Tile current = getTileAt(i, j);
                 if (current == null) continue;
 
                 int targetCol = j;
-                // 向左扫描
                 for (int k = j - 1; k >= 0; k--) {
                     Tile prev = getTileAt(i, k);
                     if (prev == null) {
-                        targetCol = k; // 空位，继续向左看
+                        targetCol = k;
                     } else if (prev.getValue() == current.getValue() && !mergedTiles.contains(prev)) {
-                        // 合并逻辑
                         performMerge(current, prev, mergedTiles);
                         isChanged = true;
-                        targetCol = -1; // 标记为已处理
+                        targetCol = -1;
                         break;
                     } else {
-                        break; // 遇到障碍且不能合并
+                        break;
                     }
                 }
-
-                // 移动逻辑 (如果没有合并)
                 if (targetCol != -1 && targetCol != j) {
                     current.setPosition(i, targetCol);
                     isChanged = true;
                 }
             }
         }
-        if (isChanged) createNewNumber();
+        if (isChanged) needNewTile = true; // 标记需要新方块
         return isChanged;
     }
 
-    // 2. 向右移动
     public boolean moveRight() {
         boolean isChanged = false;
         List<Tile> mergedTiles = new ArrayList<>();
-
         for (int i = 0; i < Config.SIDE; i++) {
-            for (int j = Config.SIDE - 2; j >= 0; j--) { // 从右数第二列开始，向左遍历
+            for (int j = Config.SIDE - 2; j >= 0; j--) {
                 Tile current = getTileAt(i, j);
                 if (current == null) continue;
-
                 int targetCol = j;
-                // 向右扫描
                 for (int k = j + 1; k < Config.SIDE; k++) {
                     Tile next = getTileAt(i, k);
                     if (next == null) {
@@ -138,29 +144,24 @@ public class GameEngine {
                         break;
                     }
                 }
-
                 if (targetCol != -1 && targetCol != j) {
                     current.setPosition(i, targetCol);
                     isChanged = true;
                 }
             }
         }
-        if (isChanged) createNewNumber();
+        if (isChanged) needNewTile = true;
         return isChanged;
     }
 
-    // 3. 向上移动
     public boolean moveUp() {
         boolean isChanged = false;
         List<Tile> mergedTiles = new ArrayList<>();
-
-        for (int j = 0; j < Config.SIDE; j++) { // 遍历列
-            for (int i = 1; i < Config.SIDE; i++) { // 从第二行开始向下遍历
+        for (int j = 0; j < Config.SIDE; j++) {
+            for (int i = 1; i < Config.SIDE; i++) {
                 Tile current = getTileAt(i, j);
                 if (current == null) continue;
-
                 int targetRow = i;
-                // 向上扫描
                 for (int k = i - 1; k >= 0; k--) {
                     Tile prev = getTileAt(k, j);
                     if (prev == null) {
@@ -174,29 +175,24 @@ public class GameEngine {
                         break;
                     }
                 }
-
                 if (targetRow != -1 && targetRow != i) {
                     current.setPosition(targetRow, j);
                     isChanged = true;
                 }
             }
         }
-        if (isChanged) createNewNumber();
+        if (isChanged) needNewTile = true;
         return isChanged;
     }
 
-    // 4. 向下移动
     public boolean moveDown() {
         boolean isChanged = false;
         List<Tile> mergedTiles = new ArrayList<>();
-
         for (int j = 0; j < Config.SIDE; j++) {
-            for (int i = Config.SIDE - 2; i >= 0; i--) { // 从倒数第二行开始向上遍历
+            for (int i = Config.SIDE - 2; i >= 0; i--) {
                 Tile current = getTileAt(i, j);
                 if (current == null) continue;
-
                 int targetRow = i;
-                // 向下扫描
                 for (int k = i + 1; k < Config.SIDE; k++) {
                     Tile next = getTileAt(k, j);
                     if (next == null) {
@@ -210,25 +206,22 @@ public class GameEngine {
                         break;
                     }
                 }
-
                 if (targetRow != -1 && targetRow != i) {
                     current.setPosition(targetRow, j);
                     isChanged = true;
                 }
             }
         }
-        if (isChanged) createNewNumber();
+        if (isChanged) needNewTile = true;
         return isChanged;
     }
 
-    // 提取公共的合并逻辑，避免代码重复
     private void performMerge(Tile current, Tile target, List<Tile> mergedTiles) {
         target.setValue(target.getValue() * 2);
         score += target.getValue();
         target.setMerging();
         mergedTiles.add(target);
 
-        // current 移动到 target 的位置，然后消失
         current.setPosition(target.getRow(), target.getCol());
         tiles.remove(current);
 

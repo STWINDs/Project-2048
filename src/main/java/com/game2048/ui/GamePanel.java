@@ -11,19 +11,19 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 
 public class GamePanel extends JPanel {
 
     private GameEngine engine;
-    private Timer animationTimer; // 动画定时器
-    private Clip mergeSoundClip;  // 音效片段
+    private Timer animationTimer;
+    private Clip mergeSoundClip;
 
     public GamePanel() {
         engine = new GameEngine();
-
-        // 加载音效
         loadSound();
-        // 设置引擎的音效回调
         engine.setMergeSoundCallback(this::playMergeSound);
 
         setPreferredSize(new Dimension(Config.WIDTH, Config.HEIGHT));
@@ -33,18 +33,15 @@ public class GamePanel extends JPanel {
         addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
-                // 只有在动画全部结束时才响应新的按键输入
+                // 如果正在移动中，不允许新的输入，防止动画错乱
                 if (!engine.areAnimationsDone()) return;
                 handleInput(e);
             }
         });
 
-        // --- 启动动画循环 ---
-        // 每 16ms 触发一次 (约 60 FPS)
+        // 60 FPS 动画循环
         animationTimer = new Timer(16, e -> {
-            // 1. 更新所有方块的动画状态
             engine.updateAnimations();
-            // 2. 重绘界面
             repaint();
         });
         animationTimer.start();
@@ -52,24 +49,22 @@ public class GamePanel extends JPanel {
 
     private void loadSound() {
         try {
-            // 假设你有一个 merge.wav 文件在 resources 文件夹下
+            // 请确保 resources 目录下有 merge.wav
             URL soundURL = getClass().getResource("/merge.wav");
-            if (soundURL == null) {
-                System.err.println("未找到音效文件: /merge.wav");
-                return;
+            if (soundURL != null) {
+                AudioInputStream audioIn = AudioSystem.getAudioInputStream(soundURL);
+                mergeSoundClip = AudioSystem.getClip();
+                mergeSoundClip.open(audioIn);
             }
-            AudioInputStream audioIn = AudioSystem.getAudioInputStream(soundURL);
-            mergeSoundClip = AudioSystem.getClip();
-            mergeSoundClip.open(audioIn);
-        } catch (UnsupportedAudioFileException | IOException | LineUnavailableException e) {
-            e.printStackTrace();
+        } catch (Exception e) {
+            System.err.println("音效加载失败，但这不影响游戏运行");
         }
     }
 
     private void playMergeSound() {
         if (mergeSoundClip != null) {
-            mergeSoundClip.setFramePosition(0); // 重置到开头
-            mergeSoundClip.start(); // 播放
+            mergeSoundClip.setFramePosition(0);
+            mergeSoundClip.start();
         }
     }
 
@@ -104,15 +99,21 @@ public class GamePanel extends JPanel {
         drawHeader(g2);
         g2.translate(0, Config.HEADER_HEIGHT);
 
-        // 绘制背景网格 (空的方块槽)
+        // 1. 先画底层的空格子
         for (int i = 0; i < Config.SIDE; i++) {
             for (int j = 0; j < Config.SIDE; j++) {
                 drawEmptyTile(g2, j, i);
             }
         }
 
-        // --- 核心绘制变化：让每个 Tile 自己绘制自己 ---
-        for (Tile t : engine.tiles) {
+        // 2. 复制一份方块列表用于排序，以免影响逻辑层
+        java.util.List<Tile> renderList = new ArrayList<>(engine.tiles);
+
+        // 3. 根据 Z-Index 排序：Z 值小的在下面，大的在上面（后画）
+        renderList.sort(Comparator.comparingInt(Tile::getZIndex));
+
+        // 4. 绘制所有方块
+        for (Tile t : renderList) {
             t.draw(g2);
         }
 
@@ -121,7 +122,6 @@ public class GamePanel extends JPanel {
         }
     }
 
-    // 绘制空的背景格
     private void drawEmptyTile(Graphics2D g, int x, int y) {
         int xPos = x * (Config.TILE_SIZE + Config.MARGIN) + Config.MARGIN;
         int yPos = y * (Config.TILE_SIZE + Config.MARGIN) + Config.MARGIN;
@@ -129,7 +129,6 @@ public class GamePanel extends JPanel {
         g.fillRoundRect(xPos, yPos, Config.TILE_SIZE, Config.TILE_SIZE, 14, 14);
     }
 
-    // ... drawHeader 和 drawGameOver 方法保持不变 ...
     private void drawHeader(Graphics2D g) {
         g.setColor(new Color(0xbbada0));
         g.fillRect(0, 0, getWidth(), Config.HEADER_HEIGHT);
@@ -146,5 +145,9 @@ public class GamePanel extends JPanel {
         String msg = engine.isWon ? "You Win!" : "Game Over";
         FontMetrics fm = g.getFontMetrics();
         g.drawString(msg, (getWidth() - fm.stringWidth(msg)) / 2, getHeight() / 2);
+
+        g.setFont(new Font(Config.FONT_NAME, Font.PLAIN, 18));
+        String subMsg = "Press SPACE to Restart";
+        g.drawString(subMsg, (getWidth() - g.getFontMetrics().stringWidth(subMsg)) / 2, getHeight() / 2 + 40);
     }
 }
